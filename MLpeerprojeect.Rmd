@@ -1,0 +1,148 @@
+---
+title: "Prediction Peer Project"
+author: "Pete Petersen III"
+date: "7/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways [A,B,C,D,E].
+
+#Objective
+
+The goal of your project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set. Any of the other variables were used to predict it. Along next sections we describe how the model was built and fitted. Two alternatives were tested: one with classification tree and another one with random forest The expected out of sample error was showed in order to advice the choice we did. Our option was random forest as best model fit. Finally we use this model to predict 20 different test cases.
+
+
+```{r loadlibrary, message=FALSE}
+
+library(tidyverse)
+library(caret)
+library(rattle)
+library(kableExtra)
+library(AppliedPredictiveModeling)
+
+```
+
+
+## Set Multiticore Parallel Envirionment
+
+Preliminary modeling indicates that Random Forest show that highest accuracy for the predictions.  The doParallel package is a “parallel backend” for the foreach package. It provides a mechanism needed to execute foreach loops in parallel. The foreach package must be used in conjunction with a package such as doParallel in order to execute code in parallel. The user must register aparallel backend to use, otherwise foreach will execute tasks sequentially, even when the %dopar% operator is used.1
+
+```{r paraenv}
+library(doParallel)
+cl <- makePSOCKcluster(5)
+registerDoParallel(cl)
+```
+
+## Get and Load Data
+
+```{r, message=FALSE}
+# Load Training Set
+trainSet <- read_csv("pml-training.csv")
+testSet <- read_csv("pml-testing.csv")
+```
+## Inspect the data. 
+
+  We notice that the data set contains many continueos variables, a few timestamps, and some identity columns.  The testset includes a problem_id column which we will exclude from the predictions.
+  
+  
+```{r}
+# Explore
+dim(trainSet)
+dim(testSet)
+table(head(trainSet, n=1))
+```
+
+## Clean the Data
+
+Inital examination of the data reveal that there are many columns of the data the are completely filled with NA. If a column contains only NA then we remove them.  Next, we specifically remove columns that are not useful in prediction like timestamps and usernames.  Lastly, we remove a column that has only an ID and no predictive value as well.  This leaves us with only 53 variables for training and test,
+
+```{r}
+     DeleteCols <- c("user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window",      "num_window")
+ # Convert Each column to bool 
+    trainSet <- trainSet[, colSums(is.na(trainSet)) == 0] 
+    RemoveCols <- which(colnames(trainSet) %in% DeleteCols)
+    trainSet <- trainSet[, -RemoveCols]    
+    trainSet <- trainSet[c(-1)]
+
+
+    testSet <- testSet[, colSums(is.na(testSet)) == 0] 
+    RemoveCols <- which(colnames(testSet) %in% DeleteCols)
+    testSet <- testSet[, -RemoveCols]    
+    testSet <- testSet[c(-1)]  
+      
+```
+
+
+
+
+## Set the Kfold training control
+
+We choose to implement a Kfold control with 3 repeats.
+
+```{r}
+# define training control
+train_control <- trainControl(method="repeatedcv", number=10, repeats=3)
+
+```
+
+
+## Fit & Select Models.
+
+  We examine four model methods during the model selection phase (rpart, lda, gbm, and RF).  For sake of brevity the results of the training are included below:
+  
+rpart accuracy 51%
+RF accuracy 99%
+gbm accuracy 95%
+lda accuracy 70%
+
+Upon analysis of the Accuracy of each method Random Forest (rf ) was selected for the final prediction against the test set.
+ 
+```{r modelfit, cache=TRUE}
+
+set.seed(125)
+
+fit_rpart <- train(as.factor(classe) ~.,data=trainSet,method="rpart",trControl=train_control) #.51
+fit_rf <- train(as.factor(classe) ~.,data=trainSet,method="rf") #.99
+#fit_gbm <- train(classe~.,data=trainSet,method="gbm") #95
+#fit_lda <- train(classe~.,data=trainSet,method="lda", trControl=train_control) #.70
+rf_results <-fit_rf$results
+
+fancyRpartPlot(fit_rpart$finalModel)
+kableExtra::kable(rf_results)
+plot(fit_rf$finalModel)
+
+#rpart_results <- fit_rpart$results
+#gbm_results <- fit_gbm$results
+#lda_results <- fit_lda$results
+
+#kableExtra::kable(gbm_results)
+#kableExtra::kable(lda_results)
+#kableExtra::kable(rpart_results)
+
+
+
+```
+
+## Results
+
+The below tabke represents our final submitted results for the quiz.
+
+```{r}
+#testSet$prediction_rpart <- predict(fit_rpart,newdata=testSet)
+#testSet$prediction_gbm <- predict(fit_gbm,newdata=testSet)
+#testSet$prediction_lda <- predict(fit_lda,newdata=testSet)
+testSet$prediction_rf <- predict(fit_rf,newdata=testSet[,-53])
+
+FinalPredictions <- testSet[,c("problem_id","prediction_rf" )]
+
+kableExtra::kable(FinalPredictions)
+```
+
+
+
